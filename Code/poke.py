@@ -16,15 +16,21 @@ def call_cluster_service(main_query, llm_query, num_points):
         # Create a service proxy
         get_cluster = rospy.ServiceProxy('/get_top1_cluster', DynamicCluster)
         
-        # Prepare the request
-        response = get_cluster(main_query=main_query, llm_query=llm_query, num_points=num_points)
+        # Khalil Code:
+        new_num_points = num_points
+        for i in range(3):
+            # Prepare the request
+            response = get_cluster(main_query=main_query, llm_query=llm_query, num_points=new_num_points)
         
+            if len(response.pts)>0:
+                rospy.loginfo("Service call succeeded")
+                pts=np.array([ [pt.x, pt.y, pt.z] for pt in response.pts ])
+                return pts  # Return the points from the service
+            else:
+                rospy.logwarn("Service call failed: %s", response.message)
+                new_num_points = new_num_points / 2;
+                continue
         if len(response.pts)>0:
-            rospy.loginfo("Service call succeeded")
-            pts=np.array([ [pt.x, pt.y, pt.z] for pt in response.pts ])
-            return pts  # Return the points from the service
-        else:
-            rospy.logwarn("Service call failed: %s", response.message)
             return None
         
     except rospy.ServiceException as e:

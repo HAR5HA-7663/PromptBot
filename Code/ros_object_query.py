@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import rospy
 import cv2
 import pdb
@@ -12,9 +13,14 @@ import message_filters
 from camera_params import camera_params
 from map_utils import pcloud_from_images, create_object_clusters, calculate_iou
 from std_srvs.srv import Trigger, TriggerResponse
-from stretch_srvs.srv import GetCluster, GetClusterRequest, GetClusterResponse, DrawCluster, DrawClusterRequest, DrawClusterResponse, SetInt, SetIntRequest,SetIntResponse
+from stretch_srvs.srv import GetCluster, GetClusterRequest, GetClusterResponse, DrawCluster, DrawClusterRequest, DrawClusterResponse, SetInt, SetIntRequest, SetIntResponse
 from geometry_msgs.msg import Point
 from visualization_msgs.msg import Marker, MarkerArray
+
+import rospy
+from stretch_srvs.srv import TriggerHS
+
+
 
 TRACK_COLOR=True
 
@@ -139,6 +145,46 @@ class multi_query_localize:
 
         return positive_clusters
 
+
+
+    def perform_headscan():
+        "Ask funmap to perfom a new head scan"
+        rospy.loginfo("Performing head scan to detect new points.")
+        rospy.wait_for_service('/funmap/trigger_head_scan')
+        try:
+            trigger_head_scan = rospy.ServiceProxy('/funmap/trigger_head_scan', TriggerHS)
+            response = trigger_head_scan()
+            if response.success:
+                rospy.loginfo("Head scan completed successfully.")
+                return True
+            else:
+                rospy.logwarn("Head scan failed.")
+                return False
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Head scan service call failed: {e}")
+            return False
+
+
+    def drive_to_scan():
+        "Ask funmap to move to a new location"
+        rospy.wait_for_service('/funmap/trigger_drive_to_scan')
+        try:
+            drive_to_scan_service = rospy.ServiceProxy('/funmap/trigger_drive_to_scan', TriggerHS)
+            response = drive_to_scan_service()
+            if response.success:
+                rospy.loginfo("Drive to scan location successful.")
+                return True
+            else:
+                rospy.logwarn("Failed to drive to scan location.")
+                return False
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Drive to scan service call failed: {e}")
+            return False
+
+
+
+
+
     def top1_cluster_service(self, request:GetClusterRequest):
         resp=GetClusterResponse()
         resp.success=False
@@ -147,36 +193,43 @@ class multi_query_localize:
 
         if len(positive_clusters)==0:
             resp.message="No clusters found"
+            
+            # try again with different locations
+            for i in range(3):
+                print(f"Trying again with new location.")
+                drive_success = self.drive_to_scan()
+                if drive_success:
+                    print(f"Succeeded to go a new location. Performing headscan now.")
+                    self.perform_headscan()
+                    print(f"Succeeded to do a headscan. Performing clustering now.")
+                    positive_clusters=self.create_and_publish_clusters(request.main_query)
+                    
+                    if len(positive_clusters)==0:
+                        resp.message="No clusters found"
+                        return resp
+                else:
+                    print(f"Failed to go a new location. Trying navigate again.")
+                    continue
+
             return resp
 
-        # if request.criterion=='mean' or request.criterion=='max' or request.criterion=='pcount':
-        #     pos_likelihoods=[ obj_.prob_stats[request.criterion] for obj_ in positive_clusters]
-        # else:
-        #     resp.message="Criterion not recognized"
-        #     return resp
+        if request.criterion=='mean' or request.criterion=='max' or request.criterion=='pcount':
+            pos_likelihoods=[ obj_.prob_stats[request.criterion] for obj_ in positive_clusters]
+        else:
+            resp.message="Criterion not recognized"
+            return resp
 
-        # whichC=np.argmax(pos_likelihoods)
-        # for idx in range(request.num_points):
-        #     fPx=positive_clusters[whichC].farthestP[idx]
-        #     pt=Point()
-        #     pt.x=positive_clusters[whichC].pts[fPx][0]
-        #     pt.y=positive_clusters[whichC].pts[fPx][1]
-        #     pt.z=positive_clusters[whichC].pts[fPx][2]
-        #     resp.pts.append(pt)
-        # resp.bbox3d=np.hstack((positive_clusters[whichC].box[0],positive_clusters[whichC].box[1])).tolist()
-        # Add all clusters' points to the response
-        for cluster in positive_clusters:
-            for pt in cluster.pts:
-                cluster_point = Point()
-                cluster_point.x = pt[0]
-                cluster_point.y = pt[1]
-                cluster_point.z = pt[2]
-                resp.pts.append(cluster_point)
-
-        resp.success = True
-        resp.message = "Clusters returned successfully"
+        whichC=np.argmax(pos_likelihoods)
+        for idx in range(request.num_points):
+            fPx=positive_clusters[whichC].farthestP[idx]
+            pt=Point()
+            pt.x=positive_clusters[whichC].pts[fPx][0]
+            pt.y=positive_clusters[whichC].pts[fPx][1]
+            pt.z=positive_clusters[whichC].pts[fPx][2]
+            resp.pts.append(pt)
+        resp.bbox3d=np.hstack((positive_clusters[whichC].box[0],positive_clusters[whichC].box[1])).tolist()
         return resp
-    
+
     def cam_info_callback(self, cam_info):
         # print("Cam info received")
         self.params=camera_params(cam_info.height, cam_info.width, cam_info.K[0], cam_info.K[4], cam_info.K[2], cam_info.K[5], np.identity(4,dtype=float))
