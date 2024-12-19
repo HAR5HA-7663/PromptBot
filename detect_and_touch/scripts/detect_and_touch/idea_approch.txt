@@ -1,0 +1,49 @@
+Flowchart for Robotic Arm Cluster Movement and Obstruction Handling:
+
+1. START
+2. Retrieve Cluster Points (Call `/get_top1_cluster`)
+    |
+    |-- [Points Found?]
+    |        |
+    |        |-- Yes --> Proceed to Select Best Point
+    |        |          |
+    |        |          |-- [Criterion = Mean, Max, Min] --> Select Best Point
+    |        |          |
+    |        |          |-- Move Arm to Point (Call `/funmap/move_arm`)
+    |        |                   |
+    |        |                   |-- [Move Successful?]
+    |        |                          |
+    |        |                          |-- Yes --> SUCCESS --> END
+    |        |                          |
+    |        |                          |-- No --> Handle Obstruction (check if the base position has changed if changed add a head scan if not try remaining two approaches repeat the same until all three Criterion fail)
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |
+    |        |-- No --> ERROR: No Points Found --> END
+    |
+3. [Move Arm to Point Failed] --> Retry Random Points 3 times
+    |
+    |-- [Random Point Attempts Remaining?]
+    |        |
+    |        |-- Yes --> Select Random Point --> Move Arm to Point
+    |        |         |
+    |        |         |-- [Move Successful?]
+    |        |                |
+    |        |                |-- Yes --> SUCCESS --> END
+    |        |
+    |        |-- No --> ERROR: All Attempts Failed --> END
+4. END
