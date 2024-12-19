@@ -3,7 +3,6 @@
 import rospy
 import cv2
 from sensor_msgs.msg import Image
-from cv_bridge import CvBridge, CvBridgeError
 from geometry_msgs.msg import Point
 from stretch_srvs.srv import GetCluster, GetClusterRequest, MoveArm, MoveArmRequest, MoveJoints, MoveJointsRequest
 import numpy as np
@@ -16,9 +15,6 @@ class CaptureAndGrasp:
 
         # Initialize CVBridge for converting ROS images to OpenCV format
         self.bridge = CvBridge()
-
-        # Subscriber for the RGB camera
-        self.image_sub = rospy.Subscriber('/camera/color/image_raw', Image, self.image_callback)
 
         # Service proxies
         rospy.wait_for_service('/get_top1_cluster')
@@ -33,17 +29,8 @@ class CaptureAndGrasp:
         # To store the latest captured image
         self.latest_image = None
 
-    def image_callback(self, msg):
-        """
-        Callback function to store the latest captured image from the camera.
-        """
-        try:
-            self.latest_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-            rospy.loginfo("Image captured successfully.")
-        except CvBridgeError as e:
-            rospy.logerr(f"CvBridge Error: {str(e)}")
 
-    def get_cluster_and_grasp(self, query, num_points=50):
+    def get_cluster(self, query, num_points=50):
         """
         Query the object cluster and grasp it.
         """
@@ -140,15 +127,10 @@ if __name__ == '__main__':
     # Allow some time to capture an image
     rospy.sleep(2)
 
-    # Check for command-line arguments
-    if len(sys.argv) < 2:
-        rospy.logerr("No query provided. Usage: ./capture_and_grasp.py <query>")
-        sys.exit(1)
-
     # Get the query from the command-line arguments
     object_query = sys.argv[1]
 
     # Perform the grasping task
-    capture_and_grasp.get_cluster_and_grasp(object_query)
+    capture_and_grasp.get_cluster(object_query)
 
     rospy.spin()
