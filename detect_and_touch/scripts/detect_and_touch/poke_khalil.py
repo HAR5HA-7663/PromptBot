@@ -26,9 +26,12 @@ def get_cluster_points(main_query, num_points):
         points_received = 0
         perform_headscan()
         
+        # Iterate and try different locations
         for i in range(3):
             new_num_points = num_points
             if drive_succeeded==True:
+                
+                # Iterate and try different thresholds
                 for j in range(3):
                     
                     # Prepare the request
@@ -43,13 +46,12 @@ def get_cluster_points(main_query, num_points):
                     else:
                         rospy.logwarn("Service call failed: %s", response.message)
                         new_num_points = int(new_num_points / 2)
-                        continue
+                        continue # try a different location
                 
             if points_received==0:
                 
-                # try again with a different location
                 print(f"Trying again with new location: {i+1}")
-                drive_success = drive_to_scan()
+                drive_success = drive_to_scan() # try a different location
 
                 if drive_success:
                     print(f"Succeeded to go a new location. Performing headscan now.")
