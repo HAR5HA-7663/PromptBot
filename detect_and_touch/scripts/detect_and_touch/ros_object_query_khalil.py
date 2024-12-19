@@ -148,7 +148,7 @@ class multi_query_localize:
 
 
     def perform_headscan():
-        """Trigger head scan to detect updated points."""
+        "Ask funmap to perfom a new head scan"
         rospy.loginfo("Performing head scan to detect new points.")
         rospy.wait_for_service('/funmap/trigger_head_scan')
         try:
@@ -166,7 +166,7 @@ class multi_query_localize:
 
 
     def drive_to_scan():
-        """Drive to scan location before performing head scan."""
+        "Ask funmap to move to a new location"
         rospy.wait_for_service('/funmap/trigger_drive_to_scan')
         try:
             drive_to_scan_service = rospy.ServiceProxy('/funmap/trigger_drive_to_scan', TriggerHS)
@@ -189,26 +189,13 @@ class multi_query_localize:
         resp=GetClusterResponse()
         resp.success=False
 
-        #print(f"Trying with num_points = {num_points}")
-        print("{request.main_query}")
         positive_clusters=self.create_and_publish_clusters(request.main_query)
 
         if len(positive_clusters)==0:
             resp.message="No clusters found"
-		
-            
-            # try again with different num_points
-            # for i in range(3): 
-                # print(f"Trying again with lesser num_points. Now = {num_points}")
-                # positive_clusters=self.create_and_publish_clusters(request.main_query)
-                # if len(positive_clusters)==0:
-                    # resp.message="No clusters found"
-                # else
-                    # return resp    
-            
             
             # try again with different locations
-            for i in range(3): # try again with different location
+            for i in range(3):
                 print(f"Trying again with new location.")
                 drive_success = self.drive_to_scan()
                 if drive_success:
@@ -219,13 +206,11 @@ class multi_query_localize:
                     
                     if len(positive_clusters)==0:
                         resp.message="No clusters found"
-                    else:
-                        print(f"Failed to go a new location. Trying navigate again.")
                         return resp
                 else:
+                    print(f"Failed to go a new location. Trying navigate again.")
                     continue
-                    
-            
+
             return resp
 
         if request.criterion=='mean' or request.criterion=='max' or request.criterion=='pcount':
