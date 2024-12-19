@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 
 import rospy
+import cv2
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
 import argparse
 from geometry_msgs.msg import PointStamped, Point
 from std_msgs.msg import Header
-from stretch_srvs.srv import GetCluster, GetClusterRequest, GetClusterResponse, MoveArm, MoveArmResponse, MoveArmRequest, TriggerHS
+from stretch_srvs.srv import GetCluster, GetClusterRequest, GetClusterResponse, MoveArm, MoveArmResponse, MoveArmRequest, TriggerHS, MoveJoints, MoveJointsRequest
 import numpy as np
 import pdb
-
+import sys
+import random
 
 def get_cluster_points(main_query):
     """Get all cluster points for a specific query."""
@@ -135,18 +139,104 @@ def handle_obstruction(points, main_query):
         rospy.logerr("Head scan failed. Unable to resolve obstruction.")
         return False
 
+# vishal's code start
+class CaptureAndGrasp:
+    def __init__(self):
+        # Initialize the ROS node
+        rospy.init_node('capture_and_grasp_node', anonymous=True)
+
+        # Initialize CVBridge for converting ROS images to OpenCV format
+        self.bridge = CvBridge()
+
+        # Subscriber for the RGB camera
+        self.image_sub = rospy.Subscriber('/camera/color/image_raw', Image, self.image_callback)
+
+        rospy.wait_for_service('/funmap/move_joints')
+        self.move_joints_service = rospy.ServiceProxy('/funmap/move_joints', MoveJoints)
+
+        # To store the latest captured image
+        self.latest_image = None
+
+    def image_callback(self, msg):
+        """
+        Callback function to store the latest captured image from the camera.
+        """
+        try:
+            self.latest_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        except CvBridgeError as e:
+            rospy.logerr(f"CvBridge Error: {str(e)}")
+
+    def get_cluster_and_grasp(self):
+        """
+        Query the object cluster and grasp it.
+        """
+        try:
+            centroid = np.mean(points, axis=0)
+
+            rospy.loginfo(f"Centroid of the cluster: {centroid}")
+
+            # Open the gripper before moving to the centroid
+            self.open_gripper()
+
+            # Move the arm to the centroid
+            if move_arm_to_point(centroid):
+                # Close the gripper to grasp after reaching the centroid
+                self.close_gripper()
+            else:
+                rospy.logwarn("Failed to move to the centroid. Gripper action aborted.")
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Service call failed: {str(e)}")
+
+    def open_gripper(self):
+        """
+        Open the gripper before moving to the object.
+        """
+        try:
+            rospy.loginfo("Calling /funmap/move_joints service to open gripper...")
+            gripper_request = MoveJointsRequest()
+            gripper_request.joint_names = ['gripper_aperture']
+            gripper_request.positions = [1]  # Open position
+
+            response = self.move_joints_service(gripper_request)
+
+            if response.success:
+                rospy.loginfo("Gripper successfully opened.")
+            else:
+                rospy.logwarn("Failed to open gripper: " + response.message)
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Service call failed: {str(e)}")
+
+    def close_gripper(self):
+        """
+        Close the gripper to grasp the object.
+        """
+        try:
+            rospy.loginfo("Calling /funmap/move_joints service to close gripper...")
+            gripper_request = MoveJointsRequest()
+            gripper_request.joint_names = ['gripper_aperture']
+            gripper_request.positions = [-1]  # Close position
+
+            response = self.move_joints_service(gripper_request)
+
+            if response.success:
+                rospy.loginfo("Gripper successfully closed.")
+            else:
+                rospy.logwarn("Failed to close gripper: " + response.message)
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Service call failed: {str(e)}")
+# vishal's code end
 
 def main():
-    rospy.init_node('cluster_centroid_publisher')
     parser = argparse.ArgumentParser(description="Call /get_top1_cluster service with custom queries")
     parser.add_argument('main_query', type=str, help="Main query for the service")
     args = parser.parse_args()
 
     # Retrieve initial cluster points once
+    global points
     points = get_cluster_points(args.main_query)
     if not points:
         rospy.logerr("No points retrieved. Exiting.")
-        return
+        return False
 
     # Try each criterion and handle obstruction if necessary
     for criterion in ["mean", "max", "min"]:
@@ -155,22 +245,34 @@ def main():
             rospy.loginfo(f"Trying {criterion} point: {best_point}")
             if move_arm_to_point(best_point):
                 rospy.loginfo(f"Successfully moved to {criterion} point.")
-                return
+                return True
             else:
                 rospy.logwarn("Obstruction detected. Performing drive to scan and retries.")
                 if handle_obstruction(points, args.main_query):
-                    return
+                    return True
 
     # Fallback to random points if all else fails
     rospy.logwarn("All criteria attempts failed. Falling back to random points.")
     if fallback_random_points(points):
-        return
+        return True
 
     rospy.logerr("All movement attempts failed. Exiting.")
-
+    return False
 
 if __name__ == '__main__':
     try:
-        main()
+        if main():
+            # vishal's code start
+            # Initialize the CaptureAndGrasp class
+            capture_and_grasp = CaptureAndGrasp()
+
+            # Allow some time to capture an image
+            rospy.sleep(2)
+
+            # Perform the grasping task
+            capture_and_grasp.get_cluster_and_grasp()
+            # vishal's code end
+
+            rospy.spin()
     except rospy.ROSInterruptException:
         rospy.loginfo("Cluster centroid publisher node terminated.")
